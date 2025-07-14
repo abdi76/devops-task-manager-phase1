@@ -1,29 +1,29 @@
 # frontend/Dockerfile
-FROM node:18-alpine as build
+# === Build Stage ===
+FROM node:18-alpine AS build
 
 WORKDIR /app
 
-# Copy package files
+# Copy and install dependencies
 COPY package*.json ./
-RUN npm ci --only=production
+RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
 
-# Copy source code and build
+# Copy source and build
 COPY . .
 RUN npm run build
 
-# Production stage
+# === Production Stage ===
 FROM nginx:alpine
 
-# Copy built application
+# Copy built app to nginx public directory
 COPY --from=build /app/build /usr/share/nginx/html
 
-# Copy nginx configuration
+# Copy custom nginx config
 COPY nginx.conf /etc/nginx/nginx.conf
 
-# Expose port
 EXPOSE 80
 
-# Health check
+# Health check for container orchestration
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost/ || exit 1
 
