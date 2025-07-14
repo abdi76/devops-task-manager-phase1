@@ -1,19 +1,54 @@
-# backend/app/main.py
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from typing import List, Optional
 import jwt
 from datetime import datetime, timedelta
 import os
+import time
+import logging
 
 from .database import get_db, engine
 from .models import Base, User, Task
-from .schemas import UserCreate, UserResponse, TaskCreate, TaskResponse, Token
+from .schemas import UserCreate, UserResponse, TaskCreate, TaskUpdate, TaskResponse, Token
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def wait_for_db():
+    """Wait for database to be available"""
+    max_retries = 30
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            # Test database connection
+            with engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+            logger.info("✅ Database connection successful!")
+            break
+        except Exception as e:
+            retry_count += 1
+            logger.warning(f"⏳ Database connection attempt {retry_count}/{max_retries} failed: {e}")
+            if retry_count >= max_retries:
+                logger.error("❌ Could not connect to database after maximum retries")
+                raise
+            time.sleep(2)
+
+# Wait for database before creating tables
+logger.info("🔄 Waiting for database...")
+wait_for_db()
 
 # Create database tables
-Base.metadata.create_all(bind=engine)
+try:
+    Base.metadata.create_all(bind=engine)
+    logger.info("✅ Database tables created successfully!")
+except Exception as e:
+    logger.error(f"❌ Error creating database tables: {e}")
+    raise
 
 app = FastAPI(
     title="Task Management API",
@@ -21,7 +56,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS configuration for frontend communication
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://frontend:3000"],
@@ -32,7 +67,7 @@ app.add_middleware(
 
 # Security configuration
 security = HTTPBearer()
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here-change-in-production")
 ALGORITHM = "HS256"
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -59,6 +94,34 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         raise HTTPException(status_code=401, detail="User not found")
     return user
 
+@app.get("/health")
+def health_check():
+    """Enhanced health check with database verification"""
+    try:
+        # Test database connection
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        return {
+            "status": "healthy", 
+            "timestamp": datetime.utcnow(),
+            "database": "connected",
+            "version": "1.0.0"
+        }
+    except Exception as e:
+        logger.error(f"❌ Health check failed: {e}")
+        raise HTTPException(status_code=503, detail="Service unavailable")
+
+@app.get("/")
+def root():
+    """Root endpoint for basic connectivity test"""
+    return {
+        "message": "Task Manager API", 
+        "version": "1.0.0",
+        "docs": "/docs",
+        "health": "/health"
+    }
+
+# Authentication endpoints
 @app.post("/api/auth/register", response_model=Token, status_code=201)
 def register_user(user: UserCreate, db: Session = Depends(get_db)):
     # Check if user already exists
@@ -78,7 +141,7 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
     db.refresh(db_user)
     
     # Create access token
-    access_token = create_access_token(data={"sub": db_user.id})
+    access_token = create_access_token(data={"sub": str(db_user.id)})
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/api/auth/login", response_model=Token)
@@ -87,9 +150,10 @@ def login_user(user: UserCreate, db: Session = Depends(get_db)):
     if not db_user or not db_user.verify_password(user.password):
         raise HTTPException(status_code=401, detail="Incorrect username or password")
     
-    access_token = create_access_token(data={"sub": db_user.id})
+    access_token = create_access_token(data={"sub": str(db_user.id)})
     return {"access_token": access_token, "token_type": "bearer"}
 
+# Task management endpoints
 @app.get("/api/tasks", response_model=List[TaskResponse])
 def get_tasks(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     tasks = db.query(Task).filter(Task.owner_id == current_user.id).all()
@@ -103,9 +167,31 @@ def create_task(task: TaskCreate, current_user: User = Depends(get_current_user)
     db.refresh(db_task)
     return db_task
 
-@app.get("/health")
-def health_check():
-    return {"status": "healthy", "timestamp": datetime.utcnow()}
+@app.put("/api/tasks/{task_id}", response_model=TaskResponse)
+def update_task(task_id: int, task_update: TaskUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    db_task = db.query(Task).filter(Task.id == task_id, Task.owner_id == current_user.id).first()
+    if not db_task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Update only provided fields
+    update_data = task_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_task, field, value)
+    
+    db_task.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(db_task)
+    return db_task
+
+@app.delete("/api/tasks/{task_id}", status_code=204)
+def delete_task(task_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    db_task = db.query(Task).filter(Task.id == task_id, Task.owner_id == current_user.id).first()
+    if not db_task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    db.delete(db_task)
+    db.commit()
+    return None
 
 if __name__ == "__main__":
     import uvicorn
