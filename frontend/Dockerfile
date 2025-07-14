@@ -1,6 +1,6 @@
 # frontend/Dockerfile
 # === Build Stage ===
-FROM node:18-alpine AS build  # Use uppercase 'AS'
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
