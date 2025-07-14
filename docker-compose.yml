@@ -1,5 +1,5 @@
 # docker-compose.yml
-version: '3.8'
+# Remove this line: version: '3.8'
 
 services:
   db:
@@ -34,8 +34,6 @@ services:
         condition: service_healthy
     networks:
       - app-network
-    volumes:
-      - ./backend:/app
     restart: unless-stopped
 
   frontend:

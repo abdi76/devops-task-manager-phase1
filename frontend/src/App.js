@@ -1,12 +1,10 @@
-// frontend/src/App.js
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import './App.css';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-
-// Configure axios defaults
-axios.defaults.baseURL = API_BASE_URL;
+import AuthForm from './components/AuthForm';
+import TaskForm from './components/TaskForm';
+import TaskList from './components/TaskList';
+import { authService } from './services/authService';
+import { taskService } from './services/taskService';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -17,7 +15,7 @@ function App() {
   useEffect(() => {
     const token = localStorage.getItem('access_token');
     if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      authService.setToken(token);
       fetchTasks();
     } else {
       setLoading(false);
@@ -26,15 +24,13 @@ function App() {
 
   const fetchTasks = async () => {
     try {
-      const response = await axios.get('/api/tasks');
-      setTasks(response.data);
+      const tasksData = await taskService.getTasks();
+      setTasks(tasksData);
       setUser({ authenticated: true });
     } catch (error) {
       console.error('Error fetching tasks:', error);
       if (error.response?.status === 401) {
-        localStorage.removeItem('access_token');
-        delete axios.defaults.headers.common['Authorization'];
-        setUser(null);
+        handleLogout();
       }
       setError('Failed to fetch tasks');
     } finally {
@@ -44,12 +40,9 @@ function App() {
 
   const handleLogin = async (credentials) => {
     try {
-      const response = await axios.post('/api/auth/login', credentials);
-      const { access_token } = response.data;
-      
-      localStorage.setItem('access_token', access_token);
-      axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-      
+      const response = await authService.login(credentials);
+      localStorage.setItem('access_token', response.access_token);
+      authService.setToken(response.access_token);
       await fetchTasks();
       setError(null);
     } catch (error) {
@@ -57,9 +50,21 @@ function App() {
     }
   };
 
+  const handleRegister = async (credentials) => {
+    try {
+      const response = await authService.register(credentials);
+      localStorage.setItem('access_token', response.access_token);
+      authService.setToken(response.access_token);
+      await fetchTasks();
+      setError(null);
+    } catch (error) {
+      setError('Registration failed. Please try again.');
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('access_token');
-    delete axios.defaults.headers.common['Authorization'];
+    authService.setToken(null);
     setUser(null);
     setTasks([]);
   };
@@ -71,7 +76,8 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <h1>Task Management System</h1>
+        <h1>🚀 Task Manager - DevOps Showcase</h1>
+        <p className="subtitle">Phase 1: Foundation Development</p>
         {user && (
           <button onClick={handleLogout} className="logout-btn">
             Logout
@@ -83,65 +89,24 @@ function App() {
       
       <main className="main-content">
         {user ? (
-          <div>
+          <div className="dashboard">
+            <div className="dashboard-header">
+              <h2>Welcome to Your Task Dashboard</h2>
+              <p>Manage your tasks efficiently</p>
+            </div>
             <TaskForm onTaskCreated={fetchTasks} />
             <TaskList tasks={tasks} onTaskUpdated={fetchTasks} />
           </div>
         ) : (
-          <AuthForm onLogin={handleLogin} />
+          <AuthForm onLogin={handleLogin} onRegister={handleRegister} />
         )}
       </main>
+      
+      <footer className="app-footer">
+        <p>DevOps Task Manager - Phase 1 | Built with React & FastAPI</p>
+      </footer>
     </div>
   );
 }
-
-// TaskForm Component
-const TaskForm = ({ onTaskCreated }) => {
-  const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    priority: 'medium'
-  });
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await axios.post('/api/tasks', formData);
-      setFormData({ title: '', description: '', priority: 'medium' });
-      onTaskCreated();
-    } catch (error) {
-      console.error('Error creating task:', error);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="task-form">
-      <h2>Create New Task</h2>
-      <input
-        type="text"
-        placeholder="Task title"
-        value={formData.title}
-        onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-        required
-      />
-      <textarea
-        placeholder="Task description"
-        value={formData.description}
-        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-      />
-      <select
-        value={formData.priority}
-        onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
-      >
-        <option value="low">Low Priority</option>
-        <option value="medium">Medium Priority</option>
-        <option value="high">High Priority</option>
-      </select>
-      <button type="submit">Create Task</button>
-    </form>
-  );
-};
-
-// Additional components (TaskList, AuthForm) would be implemented similarly...
 
 export default App;
