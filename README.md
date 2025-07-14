@@ -29,8 +29,8 @@ A comprehensive task management application demonstrating modern DevOps practice
 ### Using Docker Compose (Recommended)
 ```bash
 # Clone the repository
-git clone https://github.com/abdi76/task-management-devops.git
-cd task-management-devops
+git clone https://github.com/abdi76/devops-task-manager-phase1.git
+cd devops-task-manager-phase1
 
 # Start all services
 docker-compose up --build
