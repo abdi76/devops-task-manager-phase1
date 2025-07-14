@@ -39,3 +39,17 @@ docker-compose up --build
 # Frontend: http://localhost:3000
 # Backend API: http://localhost:8000
 # API Docs: http://localhost:8000/docs
+
+📊 API Endpoints
+POST /api/auth/register - User registration
+POST /api/auth/login - User login
+GET /api/tasks - Get user tasks
+POST /api/tasks - Create new task
+PUT /api/tasks/{id} - Update task
+DELETE /api/tasks/{id} - Delete task
+GET /health - Health check
+
+
+🏗 Architecture
+
+![alt text](image.png)
